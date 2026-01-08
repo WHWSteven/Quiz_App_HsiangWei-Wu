@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="quiz-detail-header">
+    <div class="detail-category-badge category-{{ quiz.category.name.lower() }}">
+        {{ quiz.category.name }}
+    </div>
+    <h2 class="page-title">Quiz Results</h2>
+</div>
+
+<div class="detail-score-card">
+    <div class="detail-score-main">
+        <div class="detail-score-number">{{ quiz.score }}</div>
+        <div class="detail-score-separator">/</div>
+        <div class="detail-score-total">{{ quiz.total }}</div>
+    </div>
+    <div class="detail-score-percentage">
+        {{ "%.0f"|format((quiz.score / quiz.total * 100) if quiz.total > 0 else 0) }}% Correct
+    </div>
+    <div class="detail-progress-bar">
+        <div class="detail-progress-fill" style="width: {{ (quiz.score / quiz.total * 100) if quiz.total > 0 else 0 }}%"></div>
+    </div>
+    <div class="detail-date">
+        Taken on {{ quiz.created_at.strftime("%B %d, %Y at %I:%M %p") }}
+    </div>
+</div>
+
+<div class="results-section">
+    <h3 class="results-title">Question Review</h3>
+    
+    <div class="questions-list">
+        {% for item in results %}
+        <div class="question-item {% if item.is_correct %}correct{% else %}incorrect{% endif %}">
+            <div class="question-header">
+                <span class="question-number">Question {{ loop.index }}</span>
+                {% if item.is_correct %}
+                    <span class="answer-status correct-status">✓ Correct</span>
+                {% else %}
+                    <span class="answer-status incorrect-status">✗ Incorrect</span>
+                {% endif %}
+            </div>
+            
+            <div class="question-text">{{ item.question_text }}</div>
+            
+            <div class="answer-comparison">
+                <div class="answer-row">
+                    <span class="answer-label">Your Answer:</span>
+                    <span class="answer-value {% if item.is_correct %}correct-answer{% else %}wrong-answer{% endif %}">
+                        {{ item.selected_text }}
+                    </span>
+                </div>
+                {% if not item.is_correct %}
+                <div class="answer-row">
+                    <span class="answer-label">Correct Answer:</span>
+                    <span class="answer-value correct-answer">{{ item.correct_text }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="detail-actions">
+    <a href="{{ url_for('main.home') }}" class="action-btn home-btn">← Back to Home</a>
+    <a href="{{ url_for('main.history') }}" class="action-btn history-btn">View Past Results →</a>
+</div>
+{% endblock %}

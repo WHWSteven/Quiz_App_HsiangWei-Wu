@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="quiz-nav">
+    {% if index > 1 %}
+        <a href="{{ url_for('quiz.question', index=index - 1) }}" class="nav-btn">← Previous</a>
+    {% else %}
+        <span></span>
+    {% endif %}
+
+    <span class="progress">Question {{ index }} of {{ total }}</span>
+
+    {% if index < total %}
+        <button form="quiz-form" type="submit" class="nav-btn">Next →</button>
+    {% else %}
+        <button form="quiz-form" type="submit" class="nav-btn submit-btn">Submit</button>
+    {% endif %}
+</div>
+
+<form id="quiz-form"
+      method="POST"
+      action="{% if index == total %}
+                  {{ url_for('quiz.submit') }}
+              {% else %}
+                  {{ url_for('quiz.question', index=index) }}
+              {% endif %}">
+
+    <div class="question-box">
+    {{ question.text }}
+</div>
+
+<div class="answers">
+
+    {% for choice in choices %}
+    {% set selected = session.answers.get(question.id|string) == choice.id %}
+
+
+    <input
+        type="radio"
+        id="choice-{{ choice.id }}"
+        name="answer_{{ question.id }}"
+        value="{{ choice.id }}"
+        class="answer-input"
+        {% if selected %}checked{% endif %}
+    >
+
+    <label
+        for="choice-{{ choice.id }}"
+        class="answer-btn {% if selected %}selected{% endif %}">
+        {{ choice.text }}
+    </label>
+{% endfor %}
+
+</div>
+
+   
+
+</form>
+
+{% endblock %}

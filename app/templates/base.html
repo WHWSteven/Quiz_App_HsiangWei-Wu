@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quiz App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header class="app-header">
+        <h1>Quiz App</h1>
+        <div id="auth-section" class="auth-section">
+            <span id="username-display" style="display: none;"></span>
+            <button id="login-btn" class="auth-btn">Login</button>
+            <button id="logout-btn" class="auth-btn" style="display: none;">Logout</button>
+        </div>
+    </header>
+    
+    <!-- Login/Register Modal -->
+    <div id="auth-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="modal-title">Login</h2>
+            <form id="auth-form">
+                <div id="email-field" style="display: none;">
+                    <label for="email">Email:</label>
+                    <input type="email" id="email" name="email">
+                </div>
+                <div>
+                    <label for="username">Username:</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div>
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" id="submit-btn">Login</button>
+                <button type="button" id="toggle-register">Don't have an account? Register</button>
+            </form>
+            <div id="auth-error" style="color: red; display: none;"></div>
+        </div>
+    </div>
+
+<main class="container app-container">
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div class="flash">
+                {{ messages[0] }}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+
+
+    <script>
+      // Always use Gateway on port 8080, or detect if already on Gateway
+      const currentPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+      const GATEWAY_URL = currentPort === '8080' 
+        ? window.location.origin 
+        : 'http://localhost:8080';
+      
+      // Warn if accessing through Flask directly
+      if (currentPort === '5000' || currentPort === '5001') {
+        console.warn('⚠️ You are accessing the app directly through Flask. Please access through the Gateway at http://localhost:8080');
+        console.warn('⚠️ Authentication will not work unless accessed through the Gateway.');
+      }
+      
+      let authToken = localStorage.getItem('authToken');
+      let isRegister = false;
+
+      // Success message function
+      function showSuccessMessage(message) {
+        // Create success notification element
+        const notification = document.createElement('div');
+        notification.className = 'success-notification';
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        // Trigger animation
+        setTimeout(() => {
+          notification.classList.add('show');
+        }, 10);
+        
+        // Remove after animation
+        setTimeout(() => {
+          notification.classList.remove('show');
+          setTimeout(() => {
+            if (notification.parentNode) {
+              notification.parentNode.removeChild(notification);
+            }
+          }, 300);
+        }, 3000);
+      }
+
+      // Auth UI Management
+      function updateAuthUI() {
+        const token = localStorage.getItem('authToken');
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const usernameDisplay = document.getElementById('username-display');
+        
+        if (token) {
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            usernameDisplay.textContent = `Hello, ${payload.username}`;
+            usernameDisplay.style.display = 'inline';
+            loginBtn.style.display = 'none';
+            logoutBtn.style.display = 'inline';
+            authToken = token;
+          } catch (e) {
+            console.error('Invalid token', e);
+            localStorage.removeItem('authToken');
+            authToken = null;
+          }
+        } else {
+          loginBtn.style.display = 'inline';
+          logoutBtn.style.display = 'none';
+          usernameDisplay.style.display = 'none';
+        }
+      }
+
+      // Modal Management
+      const modal = document.getElementById('auth-modal');
+      const closeBtn = document.querySelector('.close');
+      const loginBtn = document.getElementById('login-btn');
+      const logoutBtn = document.getElementById('logout-btn');
+      const toggleRegister = document.getElementById('toggle-register');
+      const authForm = document.getElementById('auth-form');
+      const modalTitle = document.getElementById('modal-title');
+      const submitBtn = document.getElementById('submit-btn');
+      const emailField = document.getElementById('email-field');
+      const authError = document.getElementById('auth-error');
+
+      loginBtn.addEventListener('click', () => {
+        isRegister = false;
+        const emailInput = document.getElementById('email');
+        modalTitle.textContent = 'Login';
+        submitBtn.textContent = 'Login';
+        emailField.style.display = 'none';
+        emailInput.removeAttribute('required');
+        authForm.reset();
+        authError.style.display = 'none';
+        modal.style.display = 'block';
+      });
+
+      logoutBtn.addEventListener('click', () => {
+        localStorage.removeItem('authToken');
+        document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        authToken = null;
+        updateAuthUI();
+        showSuccessMessage('Successfully logged out!');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      });
+
+      toggleRegister.addEventListener('click', () => {
+        isRegister = !isRegister;
+        const emailInput = document.getElementById('email');
+        if (isRegister) {
+          modalTitle.textContent = 'Register';
+          submitBtn.textContent = 'Register';
+          emailField.style.display = 'block';
+          emailInput.setAttribute('required', 'required');
+          toggleRegister.textContent = 'Already have an account? Login';
+        } else {
+          modalTitle.textContent = 'Login';
+          submitBtn.textContent = 'Login';
+          emailField.style.display = 'none';
+          emailInput.removeAttribute('required');
+          toggleRegister.textContent = "Don't have an account? Register";
+        }
+        authError.style.display = 'none';
+      });
+
+      closeBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+      });
+
+      window.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.style.display = 'none';
+        }
+      });
+
+      // Handle Auth Form Submission
+      authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        authError.style.display = 'none';
+        
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        
+        if (!username || !password) {
+          authError.textContent = 'Please fill in all required fields.';
+          authError.style.display = 'block';
+          return;
+        }
+        
+        if (isRegister) {
+          const email = document.getElementById('email').value;
+          if (!email) {
+            authError.textContent = 'Please fill in all required fields.';
+            authError.style.display = 'block';
+            return;
+          }
+        }
+        
+        try {
+          let response;
+          let endpoint;
+          let body;
+          
+          if (isRegister) {
+            const email = document.getElementById('email').value;
+            endpoint = `${GATEWAY_URL}/auth/register`;
+            body = JSON.stringify({ username, email, password });
+          } else {
+            endpoint = `${GATEWAY_URL}/auth/login`;
+            body = JSON.stringify({ username, password });
+          }
+          
+          response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+          });
+          
+          // Try to parse JSON response
+          let data;
+          try {
+            const text = await response.text();
+            if (!text) {
+              throw new Error('Empty response');
+            }
+            data = JSON.parse(text);
+          } catch (parseError) {
+            // If response is not JSON, handle it
+            if (!response.ok) {
+              if (response.status === 404) {
+                authError.innerHTML = `Error 404: Cannot find authentication endpoint.<br><br>` +
+                  `⚠️ <strong>Make sure you are accessing through the Gateway at http://localhost:8080</strong><br>` +
+                  `The Gateway must be running (port 8080) for authentication to work.<br>` +
+                  `Current URL: ${window.location.href}`;
+              } else {
+                authError.textContent = `Error: ${response.status} ${response.statusText}. Make sure the Gateway is running on port 8080.`;
+              }
+              authError.style.display = 'block';
+              return;
+            }
+            throw new Error('Invalid response format');
+          }
+          
+          if (response.ok && data.token) {
+            localStorage.setItem('authToken', data.token);
+            authToken = data.token;
+            // Also set cookie for navigation
+            document.cookie = `authToken=${data.token}; path=/; max-age=${24 * 60 * 60}`;
+            updateAuthUI();
+            modal.style.display = 'none';
+            const successMsg = isRegister ? 'Successfully registered and logged in!' : 'Successfully logged in!';
+            showSuccessMessage(successMsg);
+            setTimeout(() => {
+              window.location.reload();
+            }, 1500);
+          } else {
+            // Handle error response - show user-friendly messages
+            let errorMsg = 'Authentication failed';
+            if (data && data.error) {
+              errorMsg = data.error;
+              // Make error messages more user-friendly
+              if (errorMsg === 'Invalid credentials') {
+                errorMsg = 'Invalid username or password. Please check your credentials and try again.';
+              } else if (errorMsg.includes('already exists')) {
+                errorMsg = 'This username or email is already registered. Please try logging in instead.';
+              }
+            } else if (response.status === 401) {
+              errorMsg = 'Invalid username or password. Please check your credentials and try again.';
+            } else if (response.status === 400) {
+              errorMsg = data.error || 'Please fill in all required fields correctly.';
+            } else {
+              errorMsg = `Authentication failed (${response.status}). Please try again.`;
+            }
+            authError.textContent = errorMsg;
+            authError.style.display = 'block';
+          }
+        } catch (error) {
+          console.error('Auth error:', error);
+          // Check if it's a network error (gateway not running)
+          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError') || error.name === 'TypeError') {
+            authError.innerHTML = `Network error: Cannot connect to Gateway.<br><br>` +
+              `⚠️ <strong>Please ensure:</strong><br>` +
+              `1. The Gateway is running on port 8080<br>` +
+              `2. You are accessing the app at http://localhost:8080 (not port 5000)<br>` +
+              `3. Check the Gateway console for errors`;
+          } else {
+            authError.textContent = `An unexpected error occurred: ${error.message}. Please try again.`;
+          }
+          authError.style.display = 'block';
+        }
+      });
+
+      // Initialize auth UI on page load
+      document.addEventListener('DOMContentLoaded', () => {
+        updateAuthUI();
+      });
+
+      // Original answer selection script
+      document.addEventListener("DOMContentLoaded", () => {
+          document.querySelectorAll(".answers").forEach(group => {
+              group.addEventListener("click", e => {
+                  if (!e.target.classList.contains("answer-btn")) return;
+
+                  // remove selection from siblings
+                  group.querySelectorAll(".answer-btn").forEach(btn =>
+                      btn.classList.remove("selected")
+                  );
+
+                  // add selection to clicked one
+                  e.target.classList.add("selected");
+              });
+          });
+      });
+    </script>
+
+</body>
+</html>

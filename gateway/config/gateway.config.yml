@@ -1,0 +1,42 @@
+http:
+  port: 8080
+admin:
+  port: 9876
+  host: localhost
+apiEndpoints:
+  quiz:
+    host: localhost
+    paths: 
+      - '/quiz/*'
+      - '/'
+      - '/history'
+serviceEndpoints:
+  quizService:
+    url: 'http://localhost:5000'
+policies:
+  - jwt
+  - request-transformer
+  - proxy
+pipelines:
+  quiz:
+    apiEndpoints:
+      - quiz
+    policies:
+      - jwt:
+          - condition:
+              name: header
+              match:
+                header: authorization
+                pattern: '^Bearer .+'
+          - action:
+              secretOrPublicKey: 'your-secret-key-change-in-production'
+              checkCredentialExistence: false
+      - request-transformer:
+          action:
+            headers:
+              add:
+                X-User-Id: '${jwt.sub || jwt.userId || ""}'
+      - proxy:
+          action:
+            serviceEndpoint: quizService
+            changeOrigin: true

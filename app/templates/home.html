@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="page-title">Select a Category</h2>
+
+
+<form method="POST" action="{{ url_for('quiz.start_quiz') }}" class="category-form">
+    {% for category in categories %}
+        <button
+            type="submit"
+            name="category_id"
+            value="{{ category.id }}"
+            class="category-btn">
+            {{ category.name }}
+        </button>
+    {% endfor %}
+</form>
+
+<div class="history-link">
+    <a href="{{ url_for('main.history') }}">View Past Results</a>
+</div>
+
+{% endblock %}

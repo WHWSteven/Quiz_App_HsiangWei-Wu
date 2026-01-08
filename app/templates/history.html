@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="history-header">
+    <h2 class="page-title">Past Quiz Results</h2>
+</div>
+
+{% if history %}
+    <div class="history-grid">
+        {% for quiz in history %}
+        <div class="quiz-card">
+            <div class="quiz-card-header">
+                <span class="category-badge category-{{ quiz.category.name.lower() }}">
+                    {{ quiz.category.name }}
+                </span>
+                <span class="quiz-date">
+                    {{ (quiz.created_at - timedelta(hours=5)).strftime("%b %d, %Y %I:%M %p") }} EST
+                </span>
+            </div>
+            
+            <div class="quiz-score">
+                <div class="score-display">
+                    <span class="score-number">{{ quiz.score }}</span>
+                    <span class="score-separator">/</span>
+                    <span class="score-total">{{ quiz.total }}</span>
+                </div>
+                <div class="score-percentage">
+                    {{ "%.0f"|format((quiz.score / quiz.total * 100) if quiz.total > 0 else 0) }}%
+                </div>
+            </div>
+            
+            <div class="quiz-progress-bar">
+                <div class="quiz-progress-fill" style="width: {{ (quiz.score / quiz.total * 100) if quiz.total > 0 else 0 }}%"></div>
+            </div>
+            
+            <a href="{{ url_for('quiz.detail', quiz_id=quiz.id) }}" class="quiz-detail-btn">
+                View Details →
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <h3>No Quiz Results Yet</h3>
+        <p>Take a quiz to see your results here.</p>
+        <a href="{{ url_for('main.home') }}" class="back-btn">Start a Quiz</a>
+    </div>
+{% endif %}
+
+<div class="back-link">
+    <a href="{{ url_for('main.home') }}" class="back-home-btn">← Back to Home</a>
+</div>
+{% endblock %}
