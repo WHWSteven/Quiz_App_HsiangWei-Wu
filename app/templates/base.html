@@ -68,6 +68,33 @@
       
       let authToken = localStorage.getItem('authToken');
       let isRegister = false;
+      
+      // Intercept all fetch requests to add Authorization header
+      // This ensures JWT token is sent with every request to the Gateway
+      const originalFetch = window.fetch;
+      window.fetch = function(...args) {
+        const [url, options = {}] = args;
+        
+        // Only add Authorization header for requests to Gateway
+        if (typeof url === 'string' && (url.startsWith(GATEWAY_URL) || url.startsWith('/'))) {
+          const token = localStorage.getItem('authToken');
+          if (token) {
+            // Add Authorization header if not already present
+            if (!options.headers) {
+              options.headers = {};
+            }
+            if (!options.headers['Authorization'] && !options.headers['authorization']) {
+              options.headers['Authorization'] = `Bearer ${token}`;
+            }
+            // Ensure credentials are included for cookies
+            if (options.credentials === undefined) {
+              options.credentials = 'include';
+            }
+          }
+        }
+        
+        return originalFetch.apply(this, args);
+      };
 
       // Success message function
       function showSuccessMessage(message) {
@@ -144,10 +171,22 @@
         modal.style.display = 'block';
       });
 
-      logoutBtn.addEventListener('click', () => {
+      logoutBtn.addEventListener('click', async () => {
+        // Clear JWT token
         localStorage.removeItem('authToken');
         document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
         authToken = null;
+        
+        // Clear Flask session to reset anonymous session ID
+        try {
+          await fetch(`${GATEWAY_URL}/clear-session`, {
+            method: 'POST',
+            credentials: 'include'
+          });
+        } catch (e) {
+          console.log('Session clear request failed (non-critical):', e);
+        }
+        
         updateAuthUI();
         showSuccessMessage('Successfully logged out!');
         setTimeout(() => {
@@ -252,38 +291,180 @@
             throw new Error('Invalid response format');
           }
           
-          if (response.ok && data.token) {
-            localStorage.setItem('authToken', data.token);
-            authToken = data.token;
-            // Also set cookie for navigation
-            document.cookie = `authToken=${data.token}; path=/; max-age=${24 * 60 * 60}`;
-            updateAuthUI();
-            modal.style.display = 'none';
-            const successMsg = isRegister ? 'Successfully registered and logged in!' : 'Successfully logged in!';
-            showSuccessMessage(successMsg);
-            setTimeout(() => {
-              window.location.reload();
-            }, 1500);
-          } else {
-            // Handle error response - show user-friendly messages
-            let errorMsg = 'Authentication failed';
-            if (data && data.error) {
-              errorMsg = data.error;
-              // Make error messages more user-friendly
-              if (errorMsg === 'Invalid credentials') {
-                errorMsg = 'Invalid username or password. Please check your credentials and try again.';
-              } else if (errorMsg.includes('already exists')) {
-                errorMsg = 'This username or email is already registered. Please try logging in instead.';
+          // Handle registration (async saga pattern)
+          if (isRegister) {
+            // Only HTTP 201 Created means registration completed successfully
+            if (response.status === 201 && data.token) {
+              // Registration completed immediately - auto-login
+              localStorage.setItem('authToken', data.token);
+              authToken = data.token;
+              document.cookie = `authToken=${data.token}; path=/; max-age=${24 * 60 * 60}`;
+              
+              // Clear anonymous session
+              try {
+                await fetch(`${GATEWAY_URL}/clear-session`, {
+                  method: 'POST',
+                  credentials: 'include'
+                });
+              } catch (e) {
+                console.log('Session clear request failed (non-critical):', e);
               }
-            } else if (response.status === 401) {
-              errorMsg = 'Invalid username or password. Please check your credentials and try again.';
-            } else if (response.status === 400) {
-              errorMsg = data.error || 'Please fill in all required fields correctly.';
-            } else {
-              errorMsg = `Authentication failed (${response.status}). Please try again.`;
+              
+              updateAuthUI();
+              modal.style.display = 'none';
+              showSuccessMessage('Successfully registered and logged in!');
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500);
+            } 
+            // HTTP 200 or 202 means registration is pending (async)
+            else if (response.status === 200 || response.status === 202) {
+              // Show "Creating account..." UI
+              const submitBtn = document.getElementById('submit-btn');
+              const originalBtnText = submitBtn.textContent;
+              submitBtn.disabled = true;
+              submitBtn.textContent = 'Creating account...';
+              authError.style.display = 'none';
+              
+              // Get task_id for status polling
+              const task_id = data.task_id || (data.status_url ? data.status_url.split('/').pop() : null);
+              
+              if (!task_id) {
+                authError.textContent = 'Registration started but could not get status ID. Please try logging in manually in a few moments.';
+                authError.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalBtnText;
+                return;
+              }
+              
+              // Poll status endpoint until registration completes
+              const maxPollAttempts = 60; // 60 attempts = 60 seconds max
+              const pollInterval = 1000; // 1 second
+              let pollAttempts = 0;
+              let registrationCompleted = false;
+              
+              while (pollAttempts < maxPollAttempts && !registrationCompleted) {
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                pollAttempts++;
+                
+                try {
+                  const statusResponse = await fetch(`${GATEWAY_URL}/auth/register/status/${task_id}`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                  });
+                  
+                  if (!statusResponse.ok) {
+                    continue; // Keep polling on errors
+                  }
+                  
+                  const statusData = await statusResponse.json();
+                  
+                  if (statusData.status === 'completed' && statusData.token) {
+                    // Registration completed - auto-login
+                    registrationCompleted = true;
+                    localStorage.setItem('authToken', statusData.token);
+                    authToken = statusData.token;
+                    document.cookie = `authToken=${statusData.token}; path=/; max-age=${24 * 60 * 60}`;
+                    
+                    // Clear anonymous session
+                    try {
+                      await fetch(`${GATEWAY_URL}/clear-session`, {
+                        method: 'POST',
+                        credentials: 'include'
+                      });
+                    } catch (e) {
+                      console.log('Session clear request failed (non-critical):', e);
+                    }
+                    
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalBtnText;
+                    updateAuthUI();
+                    modal.style.display = 'none';
+                    showSuccessMessage('Successfully registered and logged in!');
+                    setTimeout(() => {
+                      window.location.reload();
+                    }, 1500);
+                  } else if (statusData.status === 'failed') {
+                    // Registration failed
+                    registrationCompleted = true;
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalBtnText;
+                    authError.textContent = statusData.error || 'Registration failed. Please try again.';
+                    authError.style.display = 'block';
+                  }
+                  // If status is 'pending', continue polling
+                } catch (pollError) {
+                  console.error('Error polling registration status:', pollError);
+                  // Continue polling on errors
+                }
+              }
+              
+              // If we exhausted polling attempts
+              if (!registrationCompleted) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalBtnText;
+                authError.textContent = 'Registration is taking longer than expected. Please try logging in manually in a few moments.';
+                authError.style.display = 'block';
+              }
+            } 
+            // Error response
+            else {
+              let errorMsg = 'Registration failed';
+              if (data && data.error) {
+                errorMsg = data.error;
+                if (errorMsg.includes('already exists')) {
+                  errorMsg = 'This username or email is already registered. Please try logging in instead.';
+                }
+              } else if (response.status === 400) {
+                errorMsg = data.error || 'Please fill in all required fields correctly.';
+              } else {
+                errorMsg = `Registration failed (${response.status}). Please try again.`;
+              }
+              authError.textContent = errorMsg;
+              authError.style.display = 'block';
             }
-            authError.textContent = errorMsg;
-            authError.style.display = 'block';
+          }
+          // Handle login (synchronous)
+          else {
+            if (response.ok && data.token) {
+              localStorage.setItem('authToken', data.token);
+              authToken = data.token;
+              document.cookie = `authToken=${data.token}; path=/; max-age=${24 * 60 * 60}`;
+              
+              // Clear anonymous session when logging in
+              try {
+                await fetch(`${GATEWAY_URL}/clear-session`, {
+                  method: 'POST',
+                  credentials: 'include'
+                });
+              } catch (e) {
+                console.log('Session clear request failed (non-critical):', e);
+              }
+              
+              updateAuthUI();
+              modal.style.display = 'none';
+              showSuccessMessage('Successfully logged in!');
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500);
+            } else {
+              // Handle login error response
+              let errorMsg = 'Authentication failed';
+              if (data && data.error) {
+                errorMsg = data.error;
+                if (errorMsg === 'Invalid credentials') {
+                  errorMsg = 'Invalid username or password. Please check your credentials and try again.';
+                }
+              } else if (response.status === 401) {
+                errorMsg = 'Invalid username or password. Please check your credentials and try again.';
+              } else if (response.status === 400) {
+                errorMsg = data.error || 'Please fill in all required fields correctly.';
+              } else {
+                errorMsg = `Authentication failed (${response.status}). Please try again.`;
+              }
+              authError.textContent = errorMsg;
+              authError.style.display = 'block';
+            }
           }
         } catch (error) {
           console.error('Auth error:', error);

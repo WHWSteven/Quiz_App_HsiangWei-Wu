@@ -75,6 +75,42 @@ def get_user(user_id):
     user = User.query.get_or_404(user_id)
     return jsonify(user.to_dict()), 200
 
+@app.route('/users/<int:user_id>/compensate', methods=['DELETE'])
+def compensate_delete_user(user_id):
+    """
+    Compensation endpoint for Saga pattern.
+    Deletes a user as part of a saga rollback operation.
+    This is called when a saga needs to compensate (rollback) user creation.
+    """
+    try:
+        user = User.query.get(user_id)
+        
+        if not user:
+            # User doesn't exist - this is ok for compensation (idempotent)
+            return jsonify({
+                'success': True,
+                'message': f'User {user_id} does not exist (already deleted or never created)',
+                'compensated': True
+            }), 200
+        
+        username = user.username
+        db.session.delete(user)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'User {username} (ID: {user_id}) has been deleted for compensation',
+            'user_id': user_id,
+            'compensated': True
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'error': f'Failed to compensate (delete user): {str(e)}',
+            'user_id': user_id
+        }), 500
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()

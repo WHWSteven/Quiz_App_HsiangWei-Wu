@@ -1,6 +1,4 @@
 Flask==3.1.2
-Flask-SQLAlchemy==3.1.1
-Werkzeug==3.1.4
 celery==5.3.4
 redis==5.0.1
 requests==2.31.0

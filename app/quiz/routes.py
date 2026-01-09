@@ -5,6 +5,7 @@ from app.models import QuizAttempt, QuizAnswer, Category, Choice
 import random
 from app.models import Question
 from sqlalchemy.sql import func
+import uuid
 
 
 quiz_bp=Blueprint('quiz',__name__)
@@ -136,19 +137,44 @@ def submit():
         flash("Please answer all questions before submitting.")
         return redirect(url_for("quiz.question", index=total))
 
-    # Get user_id from header set by Gateway (if JWT was validated)
-    user_id_header = request.headers.get('X-User-Id')
-    if user_id_header and user_id_header.strip():
-        try:
-            user_id = int(user_id_header)
-        except (ValueError, TypeError):
-            user_id = None  # Invalid user_id, treat as anonymous
+    # Get user identity from X-User-Id header (ONLY source of identity)
+    # Identity Source: X-User-Id header (set by Gateway after JWT validation)
+    # No Flask-Login, no current_user - X-User-Id is the ONLY identity source
+    def get_user_id_from_header():
+        """Get user_id from X-User-Id header - ONLY source of identity"""
+        user_id_header = request.headers.get('X-User-Id') or request.headers.get('x-user-id')
+        if user_id_header and user_id_header.strip():
+            try:
+                return int(user_id_header.strip())
+            except (ValueError, TypeError):
+                return None
+        return None
+    
+    def clear_guest_session():
+        """Clear guest session ID when user is authenticated"""
+        if 'anonymous_session_id' in session:
+            session.pop('anonymous_session_id')
+            session.modified = True
+    
+    user_id = get_user_id_from_header()
+    session_id = None
+    
+    if user_id is not None:
+        # Logged in user - set user_id, explicitly set session_id to None
+        # This ensures logged-in user results are isolated from guest results
+        # CRITICAL: Clear any guest session_id to prevent identity mixing
+        clear_guest_session()
+        session_id = None
     else:
-        user_id = None  # No user_id header, anonymous attempt
+        # Guest user - get or create session ID
+        if 'anonymous_session_id' not in session:
+            session['anonymous_session_id'] = str(uuid.uuid4())
+        session_id = session.get('anonymous_session_id')
     
     quiz = QuizAttempt(
         category_id=session["category_id"],
         user_id=user_id,
+        session_id=session_id,
         score=0,
         total=total
     )
@@ -222,30 +248,38 @@ def letter_to_index(letter: str) -> int:
 
 @quiz_bp.route("/detail/<int:quiz_id>")
 def detail(quiz_id):
+    """
+    Display quiz detail with strict permission checks:
+    - Logged-in users: Can only view their own authenticated results (user_id matches AND user_id IS NOT NULL)
+    - Guest users: Can only view their own guest results (user_id IS NULL AND session_id matches)
+    """
+    def get_user_id_from_header():
+        """Get user_id from X-User-Id header - ONLY source of identity"""
+        user_id_header = request.headers.get('X-User-Id') or request.headers.get('x-user-id')
+        if user_id_header and user_id_header.strip():
+            try:
+                return int(user_id_header.strip())
+            except (ValueError, TypeError):
+                return None
+        return None
+    
+    user_id = get_user_id_from_header()
+    session_id = session.get('anonymous_session_id')
+    
     quiz = QuizAttempt.query.get(quiz_id)
     if not quiz:
         flash("Quiz not found.")
         return redirect(url_for("main.history"))
     
-    # If user is authenticated, ensure they can only see their own quizzes
-    # If user is anonymous, they can only see anonymous quizzes
-    user_id_header = request.headers.get('X-User-Id')
-    
-    if user_id_header and user_id_header.strip():
-        try:
-            user_id = int(user_id_header)
-            # Logged in user - can only see their own quizzes
-            if quiz.user_id != user_id:
-                flash("You don't have permission to view this quiz.")
-                return redirect(url_for("main.history"))
-        except (ValueError, TypeError):
-            # Invalid user_id, treat as anonymous
-            if quiz.user_id is not None:
-                flash("You don't have permission to view this quiz.")
-                return redirect(url_for("main.history"))
+    if user_id is not None:
+        if quiz.user_id is None or quiz.user_id != user_id:
+            flash("You don't have permission to view this quiz.")
+            return redirect(url_for("main.history"))
     else:
-        # Anonymous user - can only see anonymous quizzes
-        if quiz.user_id is not None:
+        if 'anonymous_session_id' not in session:
+            session['anonymous_session_id'] = str(uuid.uuid4())
+        session_id = session.get('anonymous_session_id')
+        if quiz.user_id is not None or quiz.session_id != session_id:
             flash("You don't have permission to view this quiz.")
             return redirect(url_for("main.history"))
 
